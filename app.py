@@ -1,17 +1,17 @@
+import os
 import streamlit as st
+from openai import OpenAI
 
 # ============================== Page & style ===============================
 st.set_page_config(page_title="Project Manager Risk Copilot", layout="wide")
 st.markdown("""
 <style>
-/* Match button style from other apps */
 .stButton > button[kind="primary"]{
   padding: 12px 18px;
   font-size: 16px;
   font-weight: 700;
   border-radius: 10px;
 }
-/* Right-aligned header language select */
 .header-row { display:flex; align-items:center; justify-content:space-between; }
 .header-lang { min-width: 220px; }
 </style>
@@ -51,10 +51,12 @@ TXT = {
         "input_label": "Paste project status updates or notes",
         "input_ph": "Example: Backend API rate limits spiked on Monday; mobile release waiting for QA sign-off; vendor SSO cert expires next week…",
         "analyze_btn": "Analyze Risks",
-        "stub_h": "App is set up ✔",
-        "stub_p": "Great—deployment works. Next step: wire the OpenAI risk engine and output a RAG table with owners, probability, impact, and mitigations in the selected language.",
-        "info_h": "About",
-        "info_p": "Step 1 scaffold only. No AI calls yet.",
+        "no_key": "No API key found. Add OPENAI_API_KEY in Streamlit → Settings → Secrets.",
+        "running": "Analyzing risks…",
+        "done": "Done.",
+        "output_h": "Risk Register",
+        "about_h": "About",
+        "about_p": "Step 2A: OpenAI connected. Generating a Markdown risk table (RAG) in your selected language. No sidebar yet.",
     },
     "de": {
         "title": "📋 Project Manager Risk Copilot",
@@ -63,10 +65,12 @@ TXT = {
         "input_label": "Projektstatus-Updates oder Notizen einfügen",
         "input_ph": "Beispiel: Backend-API-Rate-Limits stiegen am Montag; Mobile-Release wartet auf QA-Freigabe; SSO-Zertifikat des Anbieters läuft nächste Woche ab…",
         "analyze_btn": "Risiken analysieren",
-        "stub_h": "App ist eingerichtet ✔",
-        "stub_p": "Super—Deployment funktioniert. Nächster Schritt: Risiko-Engine (OpenAI) anbinden und eine RAG-Tabelle mit Verantwortlichen, Wahrscheinlichkeit, Auswirkung und Maßnahmen in der gewählten Sprache erzeugen.",
-        "info_h": "Info",
-        "info_p": "Nur Schritt-1-Gerüst. Noch keine KI-Aufrufe.",
+        "no_key": "Kein API-Schlüssel gefunden. OPENAI_API_KEY in Streamlit → Settings → Secrets hinterlegen.",
+        "running": "Risiken werden analysiert…",
+        "done": "Fertig.",
+        "output_h": "Risikoregister",
+        "about_h": "Info",
+        "about_p": "Schritt 2A: OpenAI angebunden. Erzeugt eine Markdown-Risikoliste (RAG) in der gewählten Sprache. Noch keine Sidebar.",
     },
 }
 
@@ -91,15 +95,89 @@ text = st.text_area(
     placeholder=TXT[LANG]["input_ph"],
 )
 
+# ============================== OpenAI helper ==============================
+def get_client() -> ClientError | OpenAI:
+    api_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
+    if not api_key:
+        st.warning(TXT[LANG]["no_key"])
+        return None
+    try:
+        return OpenAI(api_key=api_key)
+    except Exception as e:
+        st.error(f"OpenAI init error: {e}")
+        return None
+
+def build_prompt_en(user_text: str) -> str:
+    return f"""
+You are a risk analyst for project managers. Read the notes below and output a concise **risk register**.
+
+Return **ONLY** a Markdown table followed by a short bullet list. No intro/outro text.
+
+**Columns (table):**
+| ID | Risk | Owner | Probability | Impact | RAG | Mitigation | Due |
+
+**Rules:**
+- Probability & Impact: Low / Medium / High.
+- RAG: Red/Amber/Green. Use emojis if helpful (🟥/🟧/🟩).
+- Owner: a short name/role (infer if missing).
+- Due: optional date or (—) if unknown.
+- Keep rows to the 5–10 most important risks.
+- Keep each cell short (1–2 lines).
+
+**Then output:**
+- **Top 3 Mitigation Actions**: bullet list (short, actionable).
+
+Project notes:
+{user_text}
+""".strip()
+
+def build_prompt_de(user_text: str) -> str:
+    return f"""
+Du bist Risikoanalyst:in für Projektmanager. Lies die Notizen und gib ein kurzes **Risikoregister** zurück.
+
+Gib **NUR** eine Markdown-Tabelle gefolgt von einer kurzen Aufzählung aus. Kein Einleitungs-/Schlusstext.
+
+**Spalten (Tabelle):**
+| ID | Risiko | Verantwortlich | Wahrscheinlichkeit | Auswirkung | RAG | Maßnahme | Fällig |
+
+**Regeln:**
+- Wahrscheinlichkeit & Auswirkung: Niedrig / Mittel / Hoch.
+- RAG: Rot/Amber/Grün. Emojis erlaubt (🟥/🟧/🟩).
+- Verantwortlich: kurzer Name/Rolle (falls unbekannt: ableiten).
+- Fällig: optionales Datum oder (—), wenn unbekannt.
+- 5–10 wichtigste Risiken.
+- Zellen kurz halten (1–2 Zeilen).
+
+**Danach ausgeben:**
+- **Top-3 Maßnahmen**: kurze, umsetzbare Stichpunkte.
+
+Projektnotizen:
+{user_text}
+""".strip()
+
+# ============================== Action =====================================
 if st.button(TXT[LANG]["analyze_btn"], type="primary"):
-    st.success(TXT[LANG]["stub_h"])
-    st.info(TXT[LANG]["stub_p"])
-    if text.strip():
-        with st.expander("Your pasted text (for testing) / Ihr eingefügter Text (zum Testen)"):
-            st.write(text.strip())
+    if not text.strip():
+        st.info("Paste some notes first." if LANG=="en" else "Bitte zunächst Notizen einfügen.")
     else:
-        st.write("—")
+        client = get_client()
+        if client:
+            with st.spinner(TXT[LANG]["running"]):
+                prompt = build_prompt_de(text) if LANG == "de" else build_prompt_en(text)
+                try:
+                    resp = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.2,
+                        max_tokens=900,
+                    )
+                    out = resp.choices[0].message.content.strip()
+                    st.success(TXT[LANG]["done"])
+                    st.subheader(TXT[LANG]["output_h"])
+                    st.markdown(out)
+                except Exception as e:
+                    st.error(f"OpenAI error: {e}")
 
 st.markdown("<hr/>", unsafe_allow_html=True)
-st.subheader(TXT[LANG]["info_h"])
-st.caption(TXT[LANG]["info_p"])
+st.subheader(TXT[LANG]["about_h"])
+st.caption(TXT[LANG]["about_p"])

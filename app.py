@@ -96,7 +96,7 @@ text = st.text_area(
 )
 
 # ============================== OpenAI helper ==============================
-def get_client() -> ClientError | OpenAI:
+def get_client():
     api_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
     if not api_key:
         st.warning(TXT[LANG]["no_key"])

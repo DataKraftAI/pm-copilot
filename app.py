@@ -1,61 +1,105 @@
 import streamlit as st
 
+# ============================== Page & style ===============================
 st.set_page_config(page_title="Project Manager Risk Copilot", layout="wide")
+st.markdown("""
+<style>
+/* Match button style from other apps */
+.stButton > button[kind="primary"]{
+  padding: 12px 18px;
+  font-size: 16px;
+  font-weight: 700;
+  border-radius: 10px;
+}
+/* Right-aligned header language select */
+.header-row { display:flex; align-items:center; justify-content:space-between; }
+.header-lang { min-width: 220px; }
+</style>
+""", unsafe_allow_html=True)
 
-# --- Simple i18n dictionary (Step 1 only: UI scaffold, no AI yet) ---
-I18N = {
+# ============================== Language bootstrap =========================
+def get_query_lang_default() -> str:
+    try:
+        lang = (st.query_params.get("lang") or "en").lower()
+    except Exception:
+        try:
+            params = st.experimental_get_query_params()
+            lang = (params.get("lang", ["en"])[0] or "en").lower()
+        except Exception:
+            lang = "en"
+    return "de" if lang.startswith("de") else "en"
+
+if "lang" not in st.session_state:
+    st.session_state["lang"] = get_query_lang_default()
+
+def set_lang(new_lang: str):
+    st.session_state["lang"] = new_lang
+    try:
+        st.query_params["lang"] = new_lang
+    except Exception:
+        st.experimental_set_query_params(lang=new_lang)
+    st.rerun()
+
+LANG = st.session_state["lang"]
+
+# ============================== i18n strings ===============================
+TXT = {
     "en": {
-        "title": "Project Manager Risk Copilot",
-        "subtitle": "Paste weekly project updates or notes → get structured risks (RAG), owners, and suggested mitigations.",
-        "lang_label": "Language",
+        "title": "📋 Project Manager Risk Copilot",
+        "caption": "Paste weekly project updates or notes → get structured risks (RAG), owners, probability/impact, and mitigations.",
+        "lang_label": "Language / Sprache",
         "input_label": "Paste project status updates or notes",
-        "input_ph": "Example: Backend API rate limits spiked on Monday; mobile release is waiting for QA sign-off; vendor SSO cert expires next week...",
+        "input_ph": "Example: Backend API rate limits spiked on Monday; mobile release waiting for QA sign-off; vendor SSO cert expires next week…",
         "analyze_btn": "Analyze Risks",
-        "stub_header": "App is set up ✔",
-        "stub_text": "Great! Deployment works. In the next step, we'll connect the risk engine (OpenAI) and produce a RAG risk list with owners, probability, impact, and mitigations — in your selected language.",
-        "about": "About",
-        "about_text": "This is Step 1 (UI scaffold). No AI calls yet. The goal is just to get the page live on Streamlit Cloud.",
+        "stub_h": "App is set up ✔",
+        "stub_p": "Great—deployment works. Next step: wire the OpenAI risk engine and output a RAG table with owners, probability, impact, and mitigations in the selected language.",
+        "info_h": "About",
+        "info_p": "Step 1 scaffold only. No AI calls yet.",
     },
     "de": {
-        "title": "Project Manager Risk Copilot",
-        "subtitle": "Wöchentliche Projekt-Updates oder Notizen einfügen → strukturierte Risiken (RAG), Verantwortliche und Maßnahmenvorschläge erhalten.",
+        "title": "📋 Project Manager Risk Copilot",
+        "caption": "Wöchentliche Projekt-Updates oder Notizen einfügen → strukturierte Risiken (RAG), Verantwortliche, Eintrittswahrscheinlichkeit/Auswirkung und Maßnahmen.",
         "lang_label": "Sprache",
         "input_label": "Projektstatus-Updates oder Notizen einfügen",
-        "input_ph": "Beispiel: Backend-API-Rate-Limits stiegen am Montag; Mobile-Release wartet auf QA-Freigabe; SSO-Zertifikat des Anbieters läuft nächste Woche ab...",
+        "input_ph": "Beispiel: Backend-API-Rate-Limits stiegen am Montag; Mobile-Release wartet auf QA-Freigabe; SSO-Zertifikat des Anbieters läuft nächste Woche ab…",
         "analyze_btn": "Risiken analysieren",
-        "stub_header": "App ist eingerichtet ✔",
-        "stub_text": "Super! Das Deployment funktioniert. Im nächsten Schritt verbinden wir die Risiko-Engine (OpenAI) und erzeugen eine RAG-Risikoliste mit Verantwortlichen, Eintrittswahrscheinlichkeit, Auswirkung und Maßnahmen — in der gewählten Sprache.",
-        "about": "Info",
-        "about_text": "Dies ist Schritt 1 (UI-Gerüst). Noch keine AI-Aufrufe. Ziel: Seite auf Streamlit Cloud live bringen.",
+        "stub_h": "App ist eingerichtet ✔",
+        "stub_p": "Super—Deployment funktioniert. Nächster Schritt: Risiko-Engine (OpenAI) anbinden und eine RAG-Tabelle mit Verantwortlichen, Wahrscheinlichkeit, Auswirkung und Maßnahmen in der gewählten Sprache erzeugen.",
+        "info_h": "Info",
+        "info_p": "Nur Schritt-1-Gerüst. Noch keine KI-Aufrufe.",
     },
 }
 
-# Sidebar language picker
-with st.sidebar:
-    lang = st.selectbox("Language / Sprache", ["English", "Deutsch"])
-    lang_code = "de" if lang == "Deutsch" else "en"
-    st.markdown("---")
-    st.subheader(I18N[lang_code]["about"])
-    st.caption(I18N[lang_code]["about_text"])
+# ============================== Header row =================================
+st.markdown('<div class="header-row">', unsafe_allow_html=True)
+col_left, col_right = st.columns([1, 0.32])
+with col_left:
+    st.title(TXT[LANG]["title"])
+    st.caption(TXT[LANG]["caption"])
+with col_right:
+    new_lang = st.selectbox(TXT[LANG]["lang_label"], ["English", "Deutsch"],
+                            index=(0 if LANG=="en" else 1), key="hdr_lang")
+    picked = "en" if new_lang.startswith("English") else "de"
+    if picked != LANG:
+        set_lang(picked)
+st.markdown('</div>', unsafe_allow_html=True)
 
-st.title("📊 " + I18N[lang_code]["title"])
-st.caption(I18N[lang_code]["subtitle"])
-
+# ============================== Main input =================================
 text = st.text_area(
-    I18N[lang_code]["input_label"],
+    TXT[LANG]["input_label"],
     height=220,
-    placeholder=I18N[lang_code]["input_ph"],
+    placeholder=TXT[LANG]["input_ph"],
 )
 
-if st.button(I18N[lang_code]["analyze_btn"]):
-    st.success(I18N[lang_code]["stub_header"])
-    st.info(I18N[lang_code]["stub_text"])
+if st.button(TXT[LANG]["analyze_btn"], type="primary"):
+    st.success(TXT[LANG]["stub_h"])
+    st.info(TXT[LANG]["stub_p"])
     if text.strip():
         with st.expander("Your pasted text (for testing) / Ihr eingefügter Text (zum Testen)"):
             st.write(text.strip())
     else:
         st.write("—")
 
-# Footer
 st.markdown("<hr/>", unsafe_allow_html=True)
-st.caption("Step 1 • UI scaffold only · Keine AI · Next: connect the risk engine.")
+st.subheader(TXT[LANG]["info_h"])
+st.caption(TXT[LANG]["info_p"])
